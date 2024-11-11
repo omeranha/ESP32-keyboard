@@ -129,6 +129,9 @@
   <ItemGroup>
     <ClCompile Include="serial2keyboard.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="util.h" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
