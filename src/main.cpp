@@ -1,16 +1,16 @@
 #include "ESP8266WiFi.h"
 #include "espnow.h"
 
+struct keypress {
+	uint8_t key;
+	uint8_t modifier;
+};
+
 void onReceiveData(uint8_t *mac_addr, uint8_t *data, uint8_t len) {
-	Serial.print(*data);
-	/*
-	Serial.print("Received data: ");
-	for (int i = 0; i < len; i++) {
-		Serial.print(data[i], HEX);
-		Serial.print(" ");
-	}
-	Serial.println();
-	*/
+	keypress *press = (keypress*)data;
+	Serial.print(press->key);
+	Serial.print(",");
+	Serial.println(press->modifier);
 }
 
 void setup() {
