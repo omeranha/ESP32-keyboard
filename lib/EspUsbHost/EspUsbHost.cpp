@@ -1,108 +1,83 @@
 #include "EspUsbHost.h"
 
+#include <sstream>
+#include <iomanip>
+
 void EspUsbHost::_printPcapText(const char *title, uint16_t function, uint8_t direction, uint8_t endpoint, uint8_t type, uint8_t size, uint8_t stage, const uint8_t *data) {
-  uint8_t urbsize = 0x1c;
-  if (stage == 0xff) {
-	urbsize = 0x1b;
-  }
-
-  String data_str = "";
-  for (int i = 0; i < size; i++) {
-	if (data[i] < 16) {
-	  data_str += "0";
+	uint8_t urbsize = (stage == 0xff) ? 0x1b : 0x1c;
+	std::ostringstream data_str;
+	for (int i = 0; i < size; ++i) {
+		if (data[i] < 16) {
+			data_str << "0";
+		}
+		data_str << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(data[i]) << " ";
 	}
-	data_str += String(data[i], HEX) + " ";
-  }
 
-  printf("\n");
-  printf("[PCAP TEXT]%s\n", title);
-  printf("0000  %02x 00 00 00 00 00 00 00 00 00 00 00 00 00 %02x %02x\n", urbsize, (function & 0xff), ((function >> 8) & 0xff));
-  printf("0010  %02x 01 00 01 00 %02x %02x %02x 00 00 00", direction, endpoint, type, size);
-  if (stage != 0xff) {
-	printf(" %02x\n", stage);
-  } else {
-	printf("\n");
-  }
-  printf("00%02x  %s\n", urbsize, data_str.c_str());
-  printf("\n");
+	printf("\n[PCAP TEXT]%s\n", title);
+	printf("0000  %02x 00 00 00 00 00 00 00 00 00 00 00 00 00 %02x %02x\n", urbsize, (function & 0xff), ((function >> 8) & 0xff));
+	printf("0010  %02x 01 00 01 00 %02x %02x %02x 00 00 00", direction, endpoint, type, size);
+	if (stage != 0xff) {
+		printf(" %02x\n", stage);
+	} else {
+		printf("\n");
+	}
+	printf("00%02x  %s\n\n", urbsize, data_str.str().c_str());
 }
 
 void EspUsbHost::begin(void) {
-  usbTransferSize = 0;
+	usbTransferSize = 0;
+	const usb_host_config_t config = {
+		.skip_phy_setup = false,
+		.intr_flags = ESP_INTR_FLAG_LEVEL1,
+	};
 
-  const usb_host_config_t config = {
-	.skip_phy_setup = false,
-	.intr_flags = ESP_INTR_FLAG_LEVEL1,
-  };
-  esp_err_t err = usb_host_install(&config);
-  if (err != ESP_OK) {
-	ESP_LOGI("EspUsbHost", "usb_host_install() err=%x", err);
-  } else {
-	ESP_LOGI("EspUsbHost", "usb_host_install() ESP_OK");
-  }
-
-  const usb_host_client_config_t client_config = {
-	.is_synchronous = true,
-	.max_num_event_msg = 10,
-	.async = {
-	  .client_event_callback = this->_clientEventCallback,
-	  .callback_arg = this,
+	esp_err_t result = usb_host_install(&config);
+	if (result != ESP_OK) {
+		ESP_LOGI("EspUsbHost", "usb_host_install() error = %x", err);
 	}
-  };
-  err = usb_host_client_register(&client_config, &this->clientHandle);
-  if (err != ESP_OK) {
-	ESP_LOGI("EspUsbHost", "usb_host_client_register() err=%x", err);
-  } else {
-	ESP_LOGI("EspUsbHost", "usb_host_client_register() ESP_OK");
-  }
+
+	const usb_host_client_config_t client_config = {
+		.is_synchronous = true,
+		.max_num_event_msg = 10,
+		.async = {
+		.client_event_callback = this->_clientEventCallback,
+		.callback_arg = this,
+		}
+	};
+
+	result = usb_host_client_register(&client_config, &this->clientHandle);
+	if (result != ESP_OK) {
+		ESP_LOGI("EspUsbHost", "usb_host_client_register() result = %x", result);
+	}
 }
 
 void EspUsbHost::_clientEventCallback(const usb_host_client_event_msg_t *eventMsg, void *arg) {
-  EspUsbHost *usbHost = (EspUsbHost *)arg;
+	EspUsbHost *usbHost = (EspUsbHost *)arg;
+	esp_err_t result;
+	switch (eventMsg->event) {
+		case USB_HOST_CLIENT_EVENT_NEW_DEV:
+			ESP_LOGI("EspUsbHost", "USB_HOST_CLIENT_EVENT_NEW_DEV new_dev.address=%d", eventMsg->new_dev.address);
+			result = usb_host_device_open(usbHost->clientHandle, eventMsg->new_dev.address, &usbHost->deviceHandle);
+			if (result != ESP_OK) {
+				ESP_LOGI("EspUsbHost", "usb_host_device_open() error = %x", result);
+			}
 
-  esp_err_t err;
-  switch (eventMsg->event) {
-	case USB_HOST_CLIENT_EVENT_NEW_DEV:
-	  ESP_LOGI("EspUsbHost", "USB_HOST_CLIENT_EVENT_NEW_DEV new_dev.address=%d", eventMsg->new_dev.address);
-	  err = usb_host_device_open(usbHost->clientHandle, eventMsg->new_dev.address, &usbHost->deviceHandle);
-	  if (err != ESP_OK) {
-		ESP_LOGI("EspUsbHost", "usb_host_device_open() err=%x", err);
-	  } else {
-		ESP_LOGI("EspUsbHost", "usb_host_device_open() ESP_OK");
-	  }
+			usb_device_info_t dev_info;
+			result = usb_host_device_info(usbHost->deviceHandle, &dev_info);
+			if (result != ESP_OK) {
+				ESP_LOGI("EspUsbHost", "usb_host_device_info() error = %x", result);
+			}
 
-	  usb_device_info_t dev_info;
-	  err = usb_host_device_info(usbHost->deviceHandle, &dev_info);
-	  if (err != ESP_OK) {
-		ESP_LOGI("EspUsbHost", "usb_host_device_info() err=%x", err);
-	  } else {
-		ESP_LOGI("EspUsbHost", "usb_host_device_info() ESP_OK\n"
-							   "# speed                 = %d\n"
-							   "# dev_addr              = %d\n"
-							   "# vMaxPacketSize0       = %d\n"
-							   "# bConfigurationValue   = %d\n"
-							   "# str_desc_manufacturer = \"%s\"\n"
-							   "# str_desc_product      = \"%s\"\n"
-							   "# str_desc_serial_num   = \"%s\"",
-				 dev_info.speed,
-				 dev_info.dev_addr,
-				 dev_info.bMaxPacketSize0,
-				 dev_info.bConfigurationValue,
-				 getUsbDescString(dev_info.str_desc_manufacturer).c_str(),
-				 getUsbDescString(dev_info.str_desc_product).c_str(),
-				 getUsbDescString(dev_info.str_desc_serial_num).c_str());
-	  }
+			const usb_device_desc_t *dev_desc;
+			result = usb_host_get_device_descriptor(usbHost->deviceHandle, &dev_desc);
+			if (result != ESP_OK) {
+				ESP_LOGI("EspUsbHost", "usb_host_get_device_descriptor() error = %x", result);
+			} else {
+				const uint8_t setup[8] = { 0x80, 0x06, 0x00, 0x01, 0x00, 0x00, 0x12, 0x00 };
+				_printPcapText("GET DESCRIPTOR Request DEVICE", 0x000b, 0x00, 0x80, 0x02, sizeof(setup), 0x00, setup);
+				_printPcapText("GET DESCRIPTOR Response DEVICE", 0x0008, 0x01, 0x80, 0x02, sizeof(usb_device_desc_t), 0x03, (const uint8_t *)dev_desc);
 
-	  const usb_device_desc_t *dev_desc;
-	  err = usb_host_get_device_descriptor(usbHost->deviceHandle, &dev_desc);
-	  if (err != ESP_OK) {
-		ESP_LOGI("EspUsbHost", "usb_host_get_device_descriptor() err=%x", err);
-	  } else {
-		const uint8_t setup[8] = { 0x80, 0x06, 0x00, 0x01, 0x00, 0x00, 0x12, 0x00 };
-		_printPcapText("GET DESCRIPTOR Request DEVICE", 0x000b, 0x00, 0x80, 0x02, sizeof(setup), 0x00, setup);
-		_printPcapText("GET DESCRIPTOR Response DEVICE", 0x0008, 0x01, 0x80, 0x02, sizeof(usb_device_desc_t), 0x03, (const uint8_t *)dev_desc);
-
-		ESP_LOGI("EspUsbHost", "usb_host_get_device_descriptor() ESP_OK\n"
+				ESP_LOGI("EspUsbHost", "usb_host_get_device_descriptor() ESP_OK\n"
 							   "#### DESCRIPTOR DEVICE ####\n"
 							   "# bLength            = %d\n"
 							   "# bDescriptorType    = %d\n"
@@ -132,18 +107,18 @@ void EspUsbHost::_clientEventCallback(const usb_host_client_event_msg_t *eventMs
 				 dev_desc->iProduct,
 				 dev_desc->iSerialNumber,
 				 dev_desc->bNumConfigurations);
-	  }
+			}
 
-	  const usb_config_desc_t *config_desc;
-	  err = usb_host_get_active_config_descriptor(usbHost->deviceHandle, &config_desc);
-	  if (err != ESP_OK) {
-		ESP_LOGI("EspUsbHost", "usb_host_get_active_config_descriptor() err=%x", err);
-	  } else {
-		const uint8_t setup[8] = { 0x80, 0x06, 0x00, 0x02, 0x00, 0x00, 0x09, 0x00 };
-		_printPcapText("GET DESCRIPTOR Request CONFIGURATION", 0x000b, 0x00, 0x80, 0x02, sizeof(setup), 0x00, setup);
-		_printPcapText("GET DESCRIPTOR Response CONFIGURATION", 0x0008, 0x01, 0x80, 0x02, sizeof(usb_config_desc_t), 0x03, (const uint8_t *)config_desc);
+			const usb_config_desc_t *config_desc;
+			result = usb_host_get_active_config_descriptor(usbHost->deviceHandle, &config_desc);
+			if (result != ESP_OK) {
+				ESP_LOGI("EspUsbHost", "usb_host_get_active_config_descriptor() error = %x", result);
+			} else {
+				const uint8_t setup[8] = { 0x80, 0x06, 0x00, 0x02, 0x00, 0x00, 0x09, 0x00 };
+				_printPcapText("GET DESCRIPTOR Request CONFIGURATION", 0x000b, 0x00, 0x80, 0x02, sizeof(setup), 0x00, setup);
+				_printPcapText("GET DESCRIPTOR Response CONFIGURATION", 0x0008, 0x01, 0x80, 0x02, sizeof(usb_config_desc_t), 0x03, (const uint8_t *)config_desc);
 
-		ESP_LOGI("EspUsbHost", "usb_host_get_active_config_descriptor() ESP_OK\n"
+				ESP_LOGI("EspUsbHost", "usb_host_get_active_config_descriptor() ESP_OK\n"
 							   "# bLength             = %d\n"
 							   "# bDescriptorType     = %d\n"
 							   "# wTotalLength        = %d\n"
@@ -160,176 +135,128 @@ void EspUsbHost::_clientEventCallback(const usb_host_client_event_msg_t *eventMs
 				 config_desc->iConfiguration,
 				 config_desc->bmAttributes,
 				 config_desc->bMaxPower * 2);
-	  }
+			}
 
-	  usbHost->_configCallback(config_desc);
-	  break;
+			usbHost->_configCallback(config_desc);
+			break;
+		case USB_HOST_CLIENT_EVENT_DEV_GONE:
+			ESP_LOGI("EspUsbHost", "USB_HOST_CLIENT_EVENT_DEV_GONE dev_gone.dev_hdl=%x", eventMsg->dev_gone.dev_hdl);
+			for (int i = 0; i < usbHost->usbTransferSize; i++) {
+				if (usbHost->usbTransfer[i] == NULL) {
+					continue;
+				}
 
-	case USB_HOST_CLIENT_EVENT_DEV_GONE:
-	  {
-		ESP_LOGI("EspUsbHost", "USB_HOST_CLIENT_EVENT_DEV_GONE dev_gone.dev_hdl=%x", eventMsg->dev_gone.dev_hdl);
-		for (int i = 0; i < usbHost->usbTransferSize; i++) {
-		  if (usbHost->usbTransfer[i] == NULL) {
-			continue;
-		  }
+				result = usb_host_endpoint_clear(eventMsg->dev_gone.dev_hdl, usbHost->usbTransfer[i]->bEndpointAddress);
+				if (result != ESP_OK) {
+					ESP_LOGI("EspUsbHost", "usb_host_endpoint_clear() error = %x, dev_hdl=%x, bEndpointAddress=%x", result, eventMsg->dev_gone.dev_hdl, usbHost->usbTransfer[i]->bEndpointAddress);
+				} else {
+					ESP_LOGI("EspUsbHost", "usb_host_endpoint_clear() ESP_OK, dev_hdl=%x, bEndpointAddress=%x", eventMsg->dev_gone.dev_hdl, usbHost->usbTransfer[i]->bEndpointAddress);
+				}
 
-		  err = usb_host_endpoint_clear(eventMsg->dev_gone.dev_hdl, usbHost->usbTransfer[i]->bEndpointAddress);
-		  if (err != ESP_OK) {
-			ESP_LOGI("EspUsbHost", "usb_host_endpoint_clear() err=%x, dev_hdl=%x, bEndpointAddress=%x", err, eventMsg->dev_gone.dev_hdl, usbHost->usbTransfer[i]->bEndpointAddress);
-		  } else {
-			ESP_LOGI("EspUsbHost", "usb_host_endpoint_clear() ESP_OK, dev_hdl=%x, bEndpointAddress=%x", eventMsg->dev_gone.dev_hdl, usbHost->usbTransfer[i]->bEndpointAddress);
-		  }
+				result = usb_host_transfer_free(usbHost->usbTransfer[i]);
+				if (result != ESP_OK) {
+					ESP_LOGI("EspUsbHost", "usb_host_transfer_free() result=%x, result, usbTransfer=%x", result, usbHost->usbTransfer[i]);
+				} else {
+					ESP_LOGI("EspUsbHost", "usb_host_transfer_free() ESP_OK, usbTransfer=%x", usbHost->usbTransfer[i]);
+				}
 
-		  err = usb_host_transfer_free(usbHost->usbTransfer[i]);
-		  if (err != ESP_OK) {
-			ESP_LOGI("EspUsbHost", "usb_host_transfer_free() err=%x, err, usbTransfer=%x", err, usbHost->usbTransfer[i]);
-		  } else {
-			ESP_LOGI("EspUsbHost", "usb_host_transfer_free() ESP_OK, usbTransfer=%x", usbHost->usbTransfer[i]);
-		  }
+				usbHost->usbTransfer[i] = NULL;
+			}
 
-		  usbHost->usbTransfer[i] = NULL;
-		}
-		usbHost->usbTransferSize = 0;
+			usbHost->usbTransferSize = 0;
+			for (int i = 0; i < usbHost->usbInterfaceSize; i++) {
+				result = usb_host_interface_release(usbHost->clientHandle, usbHost->deviceHandle, usbHost->usbInterface[i]);
+				if (result != ESP_OK) {
+					ESP_LOGI("EspUsbHost", "usb_host_interface_release() result=%x, result, clientHandle=%x, deviceHandle=%x, Interface=%x", result, usbHost->clientHandle, usbHost->deviceHandle, usbHost->usbInterface[i]);
+				} else {
+					ESP_LOGI("EspUsbHost", "usb_host_interface_release() ESP_OK, clientHandle=%x, deviceHandle=%x, Interface=%x", usbHost->clientHandle, usbHost->deviceHandle, usbHost->usbInterface[i]);
+				}
 
-		for (int i = 0; i < usbHost->usbInterfaceSize; i++) {
-		  err = usb_host_interface_release(usbHost->clientHandle, usbHost->deviceHandle, usbHost->usbInterface[i]);
-		  if (err != ESP_OK) {
-			ESP_LOGI("EspUsbHost", "usb_host_interface_release() err=%x, err, clientHandle=%x, deviceHandle=%x, Interface=%x", err, usbHost->clientHandle, usbHost->deviceHandle, usbHost->usbInterface[i]);
-		  } else {
-			ESP_LOGI("EspUsbHost", "usb_host_interface_release() ESP_OK, clientHandle=%x, deviceHandle=%x, Interface=%x", usbHost->clientHandle, usbHost->deviceHandle, usbHost->usbInterface[i]);
-		  }
-
-		  usbHost->usbInterface[i] = 0;
-		}
-		usbHost->usbInterfaceSize = 0;
-
-		usb_host_device_close(usbHost->clientHandle, usbHost->deviceHandle);
-
-		usbHost->onGone(eventMsg);
-	  }
-	  break;
-
-	default:
-	  ESP_LOGI("EspUsbHost", "clientEventCallback() default %d", eventMsg->event);
-	  break;
-  }
+				usbHost->usbInterface[i] = 0;
+			}
+			usbHost->usbInterfaceSize = 0;
+			usb_host_device_close(usbHost->clientHandle, usbHost->deviceHandle);
+			usbHost->onGone(eventMsg);
+			break;
+		default:
+			ESP_LOGI("EspUsbHost", "clientEventCallback() default %d", eventMsg->event);
+			break;
+	}
 }
 
 void EspUsbHost::_configCallback(const usb_config_desc_t *config_desc) {
-  const uint8_t *p = &config_desc->val[0];
-  uint8_t bLength;
+	const uint8_t *p = &config_desc->val[0];
+	uint8_t bLength;
+	const uint8_t setup[8] = { 0x80, 0x06, 0x00, 0x02, 0x00, 0x00, config_desc->wTotalLength, 0x00 };
+	_printPcapText("GET DESCRIPTOR Request CONFIGURATION", 0x000b, 0x00, 0x80, 0x02, sizeof(setup), 0x00, setup);
+	_printPcapText("GET DESCRIPTOR Response CONFIGURATION", 0x0008, 0x01, 0x80, 0x02, config_desc->wTotalLength, 0x03, (const uint8_t *)config_desc);
 
-  const uint8_t setup[8] = { 0x80, 0x06, 0x00, 0x02, 0x00, 0x00, config_desc->wTotalLength, 0x00 };
-  _printPcapText("GET DESCRIPTOR Request CONFIGURATION", 0x000b, 0x00, 0x80, 0x02, sizeof(setup), 0x00, setup);
-  _printPcapText("GET DESCRIPTOR Response CONFIGURATION", 0x0008, 0x01, 0x80, 0x02, config_desc->wTotalLength, 0x03, (const uint8_t *)config_desc);
+	for (int i = 0; i < config_desc->wTotalLength; i += bLength, p += bLength) {
+		bLength = *p;
+		if ((i + bLength) >= config_desc->wTotalLength) {
+			return;
+		}
 
-  for (int i = 0; i < config_desc->wTotalLength; i += bLength, p += bLength) {
-	bLength = *p;
-	if ((i + bLength) <= config_desc->wTotalLength) {
-	  const uint8_t bDescriptorType = *(p + 1);
-	  this->onConfig(bDescriptorType, p);
-	} else {
-	  return;
+		const uint8_t bDescriptorType = *(p + 1);
+		this->onConfig(bDescriptorType, p);
 	}
-  }
 }
 
 void EspUsbHost::task(void) {
-  esp_err_t err = usb_host_lib_handle_events(1, &this->eventFlags);
-  if (err != ESP_OK && err != ESP_ERR_TIMEOUT) {
-	ESP_LOGI("EspUsbHost", "usb_host_lib_handle_events() err=%x eventFlags=%x", err, this->eventFlags);
-  }
-
-  err = usb_host_client_handle_events(this->clientHandle, 1);
-  if (err != ESP_OK && err != ESP_ERR_TIMEOUT) {
-	ESP_LOGI("EspUsbHost", "usb_host_client_handle_events() err=%x", err);
-  }
-
-  if (this->isReady) {
-	unsigned long now = millis();
-	if ((now - this->lastCheck) > this->interval) {
-	  this->lastCheck = now;
-
-	  for (int i = 0; i < this->usbTransferSize; i++) {
-		if (this->usbTransfer[i] == NULL) {
-		  continue;
-		}
-
-		esp_err_t err = usb_host_transfer_submit(this->usbTransfer[i]);
-		if (err != ESP_OK && err != ESP_ERR_NOT_FINISHED && err != ESP_ERR_INVALID_STATE) {
-		  //ESP_LOGI("EspUsbHost", "usb_host_transfer_submit() err=%x", err);
-		}
-	  }
+	esp_err_t result = usb_host_lib_handle_events(1, &this->eventFlags);
+	if (result != ESP_OK) {
+		ESP_LOGI("EspUsbHost", "usb_host_lib_handle_events() error = %x eventFlags = %x", result, this->eventFlags);
 	}
-  }
+
+	result = usb_host_client_handle_events(this->clientHandle, 1);
+	if (result != ESP_OK) {
+		ESP_LOGI("EspUsbHost", "usb_host_client_handle_events() error =%x", err);
+	}
+
+
+	if (this->isReady) {
+		unsigned long now = millis();
+		if ((now - this->lastCheck) > this->interval) {
+			this->lastCheck = now;
+
+			for (int i = 0; i < this->usbTransferSize; i++) {
+				if (this->usbTransfer[i] == NULL) {
+					continue;
+				}
+
+				esp_err_t err = usb_host_transfer_submit(this->usbTransfer[i]);
+				if (err != ESP_OK && err != ESP_ERR_NOT_FINISHED && err != ESP_ERR_INVALID_STATE) {
+					//ESP_LOGI("EspUsbHost", "usb_host_transfer_submit() err=%x", err);
+				}
+			}
+		}
+	}
 }
 
 String EspUsbHost::getUsbDescString(const usb_str_desc_t *str_desc) {
-  String str = "";
-  if (str_desc == NULL) {
-	return str;
-  }
-
-  for (int i = 0; i < str_desc->bLength / 2; i++) {
-	if (str_desc->wData[i] > 0xFF) {
-	  continue;
+	String str = "";
+	if (str_desc == NULL) {
+		return str;
 	}
-	str += char(str_desc->wData[i]);
-  }
-  return str;
+
+	for (int i = 0; i < str_desc->bLength / 2; i++) {
+		if (str_desc->wData[i] > 0xFF) {
+			continue;
+		}
+		str += char(str_desc->wData[i]);
+	}
+	return str;
 }
 
 void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p) {
-  switch (bDescriptorType) {
-	case USB_DEVICE_DESC:
-	  {
-		ESP_LOGI("EspUsbHost", "USB_DEVICE_DESC(0x01)");
-	  }
-	  break;
-
-	case USB_CONFIGURATION_DESC:
-	  {
-#if (ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO)
-		const usb_config_desc_t *config_desc = (const usb_config_desc_t *)p;
-		ESP_LOGI("EspUsbHost", "USB_CONFIGURATION_DESC(0x02)\n"
-							   "# bLength             = %d\n"
-							   "# bDescriptorType     = %d\n"
-							   "# wTotalLength        = %d\n"
-							   "# bNumInterfaces      = %d\n"
-							   "# bConfigurationValue = %d\n"
-							   "# iConfiguration      = %d\n"
-							   "# bmAttributes        = 0x%x\n"
-							   "# bMaxPower           = %dmA",
-				 config_desc->bLength,
-				 config_desc->bDescriptorType,
-				 config_desc->wTotalLength,
-				 config_desc->bNumInterfaces,
-				 config_desc->bConfigurationValue,
-				 config_desc->iConfiguration,
-				 config_desc->bmAttributes,
-				 config_desc->bMaxPower * 2);
-#endif
-	  }
-	  break;
-
-	case USB_STRING_DESC:
-	  {
-#if (ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO)
-		const usb_standard_desc_t *desc = (const usb_standard_desc_t *)p;
-		String data_str = "";
-		for (int i = 0; i < (desc->bLength - 2); i++) {
-		  if (desc->val[i] < 16) {
-			data_str += "0";
-		  }
-		  data_str += String(desc->val[i], HEX) + " ";
-		}
-		ESP_LOGI("EspUsbHost", "USB_STRING_DESC(0x03) bLength=%d, bDescriptorType=0x%x, data=[%s]",
-				 desc->bLength,
-				 desc->bDescriptorType,
-				 data_str);
-#endif
-	  }
-	  break;
+	switch (bDescriptorType) {
+		case USB_DEVICE_DESC:
+			ESP_LOGI("EspUsbHost", "USB_DEVICE_DESC(0x01)");
+			break;
+		case USB_CONFIGURATION_DESC:
+			break;
+		case USB_STRING_DESC:
+			break;
 
 	case USB_INTERFACE_DESC:
 	  {
@@ -499,44 +426,6 @@ void EspUsbHost::onConfig(const uint8_t bDescriptorType, const uint8_t *p) {
 void EspUsbHost::_onReceive(usb_transfer_t *transfer) {
   EspUsbHost *usbHost = (EspUsbHost *)transfer->context;
   endpoint_data_t *endpoint_data = &usbHost->endpoint_data_list[(transfer->bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_NUM_MASK)];
-
-#if (ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_VERBOSE)
-  _printPcapText("URB_INTERRUPT in", 0x0009, 0x01, transfer->bEndpointAddress, 0x01, transfer->actual_num_bytes, 0xff, (const uint8_t *)transfer->data_buffer);
-
-  String buffer_str = "";
-  for (int i = 0; i < transfer->actual_num_bytes; i++) {
-	if (transfer->data_buffer[i] < 16) {
-	  buffer_str += "0";
-	}
-	buffer_str += String(transfer->data_buffer[i], HEX) + " ";
-  }
-  buffer_str.trim();
-  ESP_LOGV("EspUsbHost", "transfer\n"
-						 "# bInterfaceClass    = 0x%x\n"
-						 "# bInterfaceSubClass = 0x%x\n"
-						 "# bInterfaceProtocol = 0x%x\n"
-						 "# bCountryCode       = 0x%x > usb_transfer_t data_buffer=[%s]\n"
-						 "# data_buffer_size   = %d\n"
-						 "# num_bytes          = %d\n"
-						 "# actual_num_bytes   = %d\n"
-						 "# flags              = 0x%x\n"
-						 "# bEndpointAddress   = 0x%x\n"
-						 "# timeout_ms         = %d\n"
-						 "# num_isoc_packets   = %d",
-		   endpoint_data->bInterfaceClass,
-		   endpoint_data->bInterfaceSubClass,
-		   endpoint_data->bInterfaceProtocol,
-		   endpoint_data->bCountryCode,
-		   buffer_str.c_str(),
-		   transfer->data_buffer_size,
-		   transfer->num_bytes,
-		   transfer->actual_num_bytes,
-		   transfer->flags,
-		   transfer->bEndpointAddress,
-		   transfer->timeout_ms,
-		   transfer->num_isoc_packets);
-#endif
-
   if (endpoint_data->bInterfaceClass == USB_CLASS_HID) {
 	if (endpoint_data->bInterfaceSubClass == HID_SUBCLASS_BOOT) {
 	  if (endpoint_data->bInterfaceProtocol == HID_ITF_PROTOCOL_KEYBOARD) {

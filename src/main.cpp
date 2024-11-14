@@ -1,13 +1,18 @@
-#include "util.h"
+#include <WiFi.h>
+#include <esp_now.h>
+#include <EspUsbHost.h>
+#include <map>
+
+uint8_t receiverAddr[] = { 0x68, 0xC6, 0x3A, 0x98, 0x56, 0xE1 };
 
 void onKeyboard(hid_keyboard_report_t report, hid_keyboard_report_t last_report) {
-	keypress press;
-	press.keycode = keycodes[report.keycode[0]];
-	press.modifier = report.modifier;
-	esp_now_send(receiverAddr, (uint8_t*)&press, sizeof(press));
-	Serial.print(press.keycode);
-	Serial.print(" ");
-	Serial.println(press.modifier);
+	esp_now_send(receiverAddr, (uint8_t*)&report, sizeof(report));
+	for (int i = 0; i < 6; i++) {
+		Serial.print(report.keycode[i]);
+		Serial.print(" ");
+	}
+	Serial.println(report.modifier);
+
 }
 
 EspUsbHost usbhost;
