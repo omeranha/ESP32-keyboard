@@ -1,24 +1,60 @@
 #include "util.h"
+#include <vector>
+#include <thread>
 
-static void pressKey(uint8_t key, uint8_t modifier) {
+std::vector<uint8_t> keys;
+uint8_t lastKeys[6] = { 0, 0, 0, 0, 0, 0 };
+uint8_t modifier;
+uint8_t lastModifier;
+
+static void pressKey(uint8_t* keys, uint8_t modifier) {
 	INPUT input = { 0 };
 	input.type = INPUT_KEYBOARD;
-	if (modifier) {
+
+	// Handle modifier key press
+	if (modifier && modifier != lastModifier) {
 		input.ki.wVk = modifiers[modifier];
 		SendInput(1, &input, sizeof(INPUT));
 	}
-	input.ki.wVk = key;
-	SendInput(1, &input, sizeof(INPUT));
-	input.ki.dwFlags = KEYEVENTF_KEYUP;
-	SendInput(1, &input, sizeof(INPUT));
-	if (modifier) {
-		input.ki.wVk = modifiers[modifier];
+
+	// Handle key presses and releases
+	for (size_t i = 0; i < 6; i++) {
+		if (keys[i] != 0) {
+			input.ki.wVk = keycodes[keys[i]];
+			input.ki.dwFlags = 0; // Key pressssssssssssssss (down)
+			SendInput(1, &input, sizeof(INPUT));
+		}
+	}
+
+	// Handle key releases
+	for (size_t i = 0; i < 6; i++) {
+		if (lastKeys[i] != 0 && std::find(keys, keys + 6, lastKeys[i]) == keys + 6) {
+			input.ki.wVk = keycodes[lastKeys[i]];
+			input.ki.dwFlags = KEYEVENTF_KEYUP; // Key release
+			SendInput(1, &input, sizeof(INPUT));
+		}
+	}
+
+	// Handle modifier key release
+	if (lastModifier && lastModifier != modifier) {
+		input.ki.wVk = modifiers[lastModifier];
 		input.ki.dwFlags = KEYEVENTF_KEYUP;
 		SendInput(1, &input, sizeof(INPUT));
+	}
+
+	memcpy(lastKeys, keys, 6);
+	lastModifier = modifier; // Update the last modifier state
+}
+
+void pressThread() {
+	while (true) {
+		pressKey(keys.data(), modifier);
+		Sleep(100);
 	}
 }
 
 int main() {
+	keys.reserve(6);
 	HANDLE hSerial = CreateFile(PORT, GENERIC_READ, 0, nullptr, OPEN_EXISTING, 0, nullptr);
 	if (hSerial == INVALID_HANDLE_VALUE) {
 		std::cerr << "Error opening serial port" << std::endl;
@@ -57,22 +93,30 @@ int main() {
 	}
 
 	std::string serial;
+	std::thread(pressThread).detach();
 	while (true) {
 		uint8_t buffer = 0;
-		if (ReadFile(hSerial, &buffer, sizeof(buffer), nullptr, nullptr) && buffer > 0) {
+		DWORD bytesRead;
+		if (ReadFile(hSerial, &buffer, sizeof(buffer), &bytesRead, nullptr) && bytesRead > 0) {
 			serial.push_back(buffer);
 			if (buffer == '\n') {
 				auto comma = serial.find(',');
 				if (comma != std::string::npos) {
-					uint8_t key = static_cast<uint8_t>(std::stoi(serial.substr(0, comma)));
-					uint8_t modifier = static_cast<uint8_t>(std::stoi(serial.substr(comma + 1)));
-					pressKey(key,  modifier);
+					size_t start = 0;
+					while (comma != std::string::npos) {
+						keys.push_back(static_cast<uint8_t>(std::stoi(serial.substr(start, comma - start))));
+						start = comma + 1;
+						comma = serial.find(',', start);
+					}
+					keys.push_back(static_cast<uint8_t>(std::stoi(serial.substr(start))));
+					modifier = keys.back();
+					keys.pop_back();
 				}
 				serial.clear();
+				keys.clear();
 			}
 		}
 	}
-
 	CloseHandle(hSerial);
 	return 0;
 }
