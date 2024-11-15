@@ -2,10 +2,11 @@
 
 #include <iostream>
 #include <Windows.h>
-#include <string>
 #include <map>
-
-#define PORT L"COM4"
+#include <vector>
+#include <atomic>
+#include <thread>
+#include <string>
 
 struct keypress {
 	uint8_t key;

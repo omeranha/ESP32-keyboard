@@ -1,70 +1,29 @@
 #include "util.h"
-#include <vector>
-#include <thread>
 
-std::vector<uint8_t> keys;
-uint8_t lastKeys[6] = { 0, 0, 0, 0, 0, 0 };
-uint8_t modifier;
-uint8_t lastModifier;
 
-static void pressKey(uint8_t* keys, uint8_t modifier) {
-	INPUT input = { 0 };
-	input.type = INPUT_KEYBOARD;
+void pressKey(uint8_t* keys, uint8_t modifier);
+void pressThread();
+void autoRepeatThread();
 
-	// Handle modifier key press
-	if (modifier && modifier != lastModifier) {
-		input.ki.wVk = modifiers[modifier];
-		SendInput(1, &input, sizeof(INPUT));
-	}
-
-	// Handle key presses and releases
-	for (size_t i = 0; i < 6; i++) {
-		if (keys[i] != 0) {
-			input.ki.wVk = keycodes[keys[i]];
-			input.ki.dwFlags = 0; // Key pressssssssssssssss (down)
-			SendInput(1, &input, sizeof(INPUT));
-		}
-	}
-
-	// Handle key releases
-	for (size_t i = 0; i < 6; i++) {
-		if (lastKeys[i] != 0 && std::find(keys, keys + 6, lastKeys[i]) == keys + 6) {
-			input.ki.wVk = keycodes[lastKeys[i]];
-			input.ki.dwFlags = KEYEVENTF_KEYUP; // Key release
-			SendInput(1, &input, sizeof(INPUT));
-		}
-	}
-
-	// Handle modifier key release
-	if (lastModifier && lastModifier != modifier) {
-		input.ki.wVk = modifiers[lastModifier];
-		input.ki.dwFlags = KEYEVENTF_KEYUP;
-		SendInput(1, &input, sizeof(INPUT));
-	}
-
-	memcpy(lastKeys, keys, 6);
-	lastModifier = modifier; // Update the last modifier state
-}
-
-void pressThread() {
-	while (true) {
-		pressKey(keys.data(), modifier);
-		Sleep(100);
-	}
-}
+#define PORT L"COM4"
+bool keyPressed = false;
+bool autoRepeatActive = false;
+std::vector<uint8_t> keys(6);
+uint8_t lastKeys[6] = { 0 };
+uint8_t modifier = 0;
+uint8_t lastModifier = 0;
 
 int main() {
-	keys.reserve(6);
 	HANDLE hSerial = CreateFile(PORT, GENERIC_READ, 0, nullptr, OPEN_EXISTING, 0, nullptr);
 	if (hSerial == INVALID_HANDLE_VALUE) {
-		std::cerr << "Error opening serial port" << std::endl;
+		std::cout << "Error opening serial port\n";
 		return 1;
 	}
 
 	DCB dcbSerialParams = { 0 };
 	dcbSerialParams.DCBlength = sizeof(dcbSerialParams);
 	if (!GetCommState(hSerial, &dcbSerialParams)) {
-		std::cerr << "Error getting state" << std::endl;
+		std::cout << "Error getting state\n";
 		CloseHandle(hSerial);
 		return 1;
 	}
@@ -74,7 +33,7 @@ int main() {
 	dcbSerialParams.StopBits = ONESTOPBIT;
 	dcbSerialParams.Parity = NOPARITY;
 	if (!SetCommState(hSerial, &dcbSerialParams)) {
-		std::cerr << "Error setting state" << std::endl;
+		std::cout << "Error setting state\n";
 		CloseHandle(hSerial);
 		return 1;
 	}
@@ -87,13 +46,14 @@ int main() {
 	timeouts.WriteTotalTimeoutMultiplier = 10;
 
 	if (!SetCommTimeouts(hSerial, &timeouts)) {
-		std::cerr << "Error setting timeouts" << std::endl;
+		std::cout << "Error setting timeouts\n";
 		CloseHandle(hSerial);
 		return 1;
 	}
 
 	std::string serial;
 	std::thread(pressThread).detach();
+	std::thread(autoRepeatThread).detach();
 	while (true) {
 		uint8_t buffer = 0;
 		DWORD bytesRead;
@@ -101,8 +61,8 @@ int main() {
 			serial.push_back(buffer);
 			if (buffer == '\n') {
 				auto comma = serial.find(',');
+				auto start = 0;
 				if (comma != std::string::npos) {
-					size_t start = 0;
 					while (comma != std::string::npos) {
 						keys.push_back(static_cast<uint8_t>(std::stoi(serial.substr(start, comma - start))));
 						start = comma + 1;
@@ -114,9 +74,71 @@ int main() {
 				}
 				serial.clear();
 				keys.clear();
+				keyPressed = true;
+			} else {
+				keyPressed = false;
 			}
 		}
 	}
 	CloseHandle(hSerial);
 	return 0;
+}
+
+void pressKey(uint8_t* keys, uint8_t modifier) {
+	INPUT input = { 0 };
+	input.type = INPUT_KEYBOARD;
+	if (modifier && modifier != lastModifier) {
+		input.ki.wVk = modifiers[modifier];
+		SendInput(1, &input, sizeof(INPUT));
+	}
+
+
+	for (uint8_t i = 0; i < 6; i++) {
+		if (keys[i] != 0) {
+			input.ki.wVk = keycodes[keys[i]];
+			input.ki.dwFlags = 0;
+			SendInput(1, &input, sizeof(INPUT));
+		}
+	}
+
+	for (uint8_t i = 0; i < 6; i++) {
+		if (lastKeys[i] != 0 && std::find(keys, keys + 6, lastKeys[i]) == keys + 6) {
+			input.ki.wVk = keycodes[lastKeys[i]];
+			input.ki.dwFlags = KEYEVENTF_KEYUP;
+			SendInput(1, &input, sizeof(INPUT));
+		}
+	}
+
+	if (lastModifier && lastModifier != modifier) {
+		input.ki.wVk = modifiers[lastModifier];
+		input.ki.dwFlags = KEYEVENTF_KEYUP;
+		SendInput(1, &input, sizeof(INPUT));
+	}
+
+	memcpy(lastKeys, keys, 6);
+	lastModifier = modifier;
+}
+
+void autoRepeatThread() {
+	while (true) {
+		if (keyPressed) {
+			Sleep(500); // auto-repeat delay
+			autoRepeatActive = true;
+			while (keyPressed) {
+				pressKey(keys.data(), modifier);
+				Sleep(100); // auto-repeat speed
+			}
+			autoRepeatActive = false;
+		}
+		Sleep(1);
+	}
+}
+
+void pressThread() {
+	while (true) {
+		if (!autoRepeatActive) {
+			pressKey(keys.data(), modifier);
+		}
+		Sleep(1);
+	}
 }
