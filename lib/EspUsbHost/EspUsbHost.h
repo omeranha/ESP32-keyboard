@@ -7,12 +7,14 @@
 #include <rom/usb/usb_common.h>
 
 typedef void (*keyboard_callback)(hid_keyboard_report_t report, hid_keyboard_report_t last_report);
+typedef void (*mouse_callback)(hid_mouse_report_t report, uint8_t last_buttons);
 
 class EspUsbHost {
 public:
 	bool isReady = false;
 	uint8_t interval;
 	unsigned long lastCheck;
+	uint8_t keyboard_leds = 0;
 	
 	struct endpoint_data_t {
 		uint8_t bInterfaceClass;
@@ -39,6 +41,7 @@ public:
 	hid_local_enum_t hidLocal;
 
 	keyboard_callback keyboardCallback;
+	mouse_callback mouseCallback;
 
 	void begin(void);
 	void task(void);
@@ -56,14 +59,12 @@ public:
 	virtual void onReceive(const usb_transfer_t *transfer){};
 	virtual void onGone(const usb_host_client_event_msg_t *eventMsg){};
 
-	virtual void onMouse(hid_mouse_report_t report, uint8_t last_buttons);
-	virtual void onMouseButtons(hid_mouse_report_t report, uint8_t last_buttons);
-	virtual void onMouseMove(hid_mouse_report_t report);
-
-	void _onDataGamepad();
-
 	void setHIDLocal(hid_local_enum_t code);
+
 	void setKeyboardCallback(keyboard_callback callback);
+	void setMouseCallback(mouse_callback callback);
+
+	void toggleKeyboardLeds(uint8_t ledState);
 };
 
 #endif
