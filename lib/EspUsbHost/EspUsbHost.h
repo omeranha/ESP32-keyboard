@@ -64,7 +64,7 @@ public:
 	void setKeyboardCallback(keyboard_callback callback);
 	void setMouseCallback(mouse_callback callback);
 
-	void toggleKeyboardLeds(uint8_t ledState);
+	void sendKeyboardLeds();
 };
 
 #endif

@@ -1,7 +1,6 @@
 #include <WiFi.h>
 #include <esp_now.h>
 #include <EspUsbHost.h>
-#include <map>
 
 uint8_t receiverAddr[] = { 0x68, 0xC6, 0x3A, 0x98, 0x56, 0xE1 };
 
@@ -33,8 +32,7 @@ void setup() {
 	peerInfo.encrypt = false;
 	esp_err_t addPeerResult = esp_now_add_peer(&peerInfo);
 	if (addPeerResult != ESP_OK) {
-		Serial.print("esp_now_add_peer error: ");
-		Serial.println(addPeerResult);
+		Serial.println("esp_now_add_peer error: " + String(addPeerResult));
 		return;
 	}
 
