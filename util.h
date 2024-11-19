@@ -8,11 +8,6 @@
 #include <thread>
 #include <string>
 
-struct keypress {
-	uint8_t key;
-	uint8_t modifier;
-};
-
 std::map<uint8_t, uint8_t> modifiers = {
 	{1, VK_LCONTROL},
 	{2, VK_LSHIFT},
@@ -23,7 +18,6 @@ std::map<uint8_t, uint8_t> modifiers = {
 	{64, VK_RMENU},
 	{128, VK_RWIN}
 };
-
 
 std::map<uint8_t, uint8_t> keycodes = {
 	{0x04, 'A'}, // A

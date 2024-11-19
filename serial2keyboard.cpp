@@ -1,7 +1,6 @@
 #include "util.h"
 
-
-void pressKey(uint8_t* keys, uint8_t modifier);
+void pressKey();
 void pressThread();
 void autoRepeatThread();
 
@@ -60,20 +59,17 @@ int main() {
 		if (ReadFile(hSerial, &buffer, sizeof(buffer), &bytesRead, nullptr) && bytesRead > 0) {
 			serial.push_back(buffer);
 			if (buffer == '\n') {
-				auto comma = serial.find(',');
-				auto start = 0;
-				if (comma != std::string::npos) {
-					while (comma != std::string::npos) {
-						keys.push_back(static_cast<uint8_t>(std::stoi(serial.substr(start, comma - start))));
-						start = comma + 1;
-						comma = serial.find(',', start);
-					}
-					keys.push_back(static_cast<uint8_t>(std::stoi(serial.substr(start))));
-					modifier = keys.back();
-					keys.pop_back();
+				size_t start = 0;
+				size_t comma = serial.find(',');
+				while (comma != std::string::npos) {
+					keys.push_back(static_cast<uint8_t>(std::stoi(serial.substr(start, comma - start))));
+					start = comma + 1;
+					comma = serial.find(',', start);
 				}
+				keys.push_back(static_cast<uint8_t>(std::stoi(serial.substr(start))));
+				modifier = keys.back();
+				keys.pop_back();
 				serial.clear();
-				keys.clear();
 				keyPressed = true;
 			} else {
 				keyPressed = false;
@@ -84,7 +80,7 @@ int main() {
 	return 0;
 }
 
-void pressKey(uint8_t* keys, uint8_t modifier) {
+void pressKey() {
 	INPUT input = { 0 };
 	input.type = INPUT_KEYBOARD;
 	if (modifier && modifier != lastModifier) {
@@ -92,18 +88,17 @@ void pressKey(uint8_t* keys, uint8_t modifier) {
 		SendInput(1, &input, sizeof(INPUT));
 	}
 
-
-	for (uint8_t i = 0; i < 6; i++) {
-		if (keys[i] != 0) {
-			input.ki.wVk = keycodes[keys[i]];
+	for (uint8_t key : keys) {
+		if (key != 0) {
+			input.ki.wVk = keycodes[key];
 			input.ki.dwFlags = 0;
 			SendInput(1, &input, sizeof(INPUT));
 		}
 	}
 
-	for (uint8_t i = 0; i < 6; i++) {
-		if (lastKeys[i] != 0 && std::find(keys, keys + 6, lastKeys[i]) == keys + 6) {
-			input.ki.wVk = keycodes[lastKeys[i]];
+	for (uint8_t lastKey : lastKeys) {
+		if (lastKey != 0 && std::find(keys.begin(), keys.end(), lastKey) == keys.end()) {
+			input.ki.wVk = keycodes[lastKey];
 			input.ki.dwFlags = KEYEVENTF_KEYUP;
 			SendInput(1, &input, sizeof(INPUT));
 		}
@@ -115,7 +110,7 @@ void pressKey(uint8_t* keys, uint8_t modifier) {
 		SendInput(1, &input, sizeof(INPUT));
 	}
 
-	memcpy(lastKeys, keys, 6);
+	std::copy(keys.begin(), keys.end(), lastKeys);
 	lastModifier = modifier;
 }
 
@@ -125,7 +120,7 @@ void autoRepeatThread() {
 			Sleep(500); // auto-repeat delay
 			autoRepeatActive = true;
 			while (keyPressed) {
-				pressKey(keys.data(), modifier);
+				pressKey();
 				Sleep(100); // auto-repeat speed
 			}
 			autoRepeatActive = false;
@@ -137,7 +132,7 @@ void autoRepeatThread() {
 void pressThread() {
 	while (true) {
 		if (!autoRepeatActive) {
-			pressKey(keys.data(), modifier);
+			pressKey();
 		}
 		Sleep(1);
 	}
