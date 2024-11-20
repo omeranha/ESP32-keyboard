@@ -8,12 +8,15 @@ struct keypress {
 };
 
 void onReceiveData(uint8_t *mac_addr, uint8_t *data, uint8_t len) {
-	keypress *press = (keypress*)data;
-	for (int i = 0; i < 6; i++) {
-		Serial.print(press->keycode[i]);
-		Serial.print(",");
+	char str[15];
+	uint8_t pos = 0;
+	for (uint8_t i = 0; i < len; i++) {
+		pos += sprintf(&str[pos], "%d", data[i]);
+		if (i < len - 1) {
+			pos += sprintf(&str[pos], ",");
+		}
 	}
-	Serial.println(press->modifier);
+	Serial.println(str);
 }
 
 void setup() {
