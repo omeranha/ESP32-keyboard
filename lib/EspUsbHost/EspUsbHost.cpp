@@ -1,32 +1,5 @@
 #include "EspUsbHost.h"
 
-void EspUsbHost::_printPcapText(const char *title, uint16_t function, uint8_t direction, uint8_t endpoint, uint8_t type, uint8_t size, uint8_t stage, const uint8_t *data) {
-	uint8_t urbsize = 0x1c;
-	if (stage == 0xff) {
-		urbsize = 0x1b;
-	}
-
-	String data_str = "";
-	for (int i = 0; i < size; i++) {
-		if (data[i] < 16) {
-			data_str += "0";
-		}
-		data_str += String(data[i], HEX) + " ";
-	}
-
-	printf("\n");
-	printf("[PCAP TEXT]%s\n", title);
-	printf("0000  %02x 00 00 00 00 00 00 00 00 00 00 00 00 00 %02x %02x\n", urbsize, (function & 0xff), ((function >> 8) & 0xff));
-	printf("0010  %02x 01 00 01 00 %02x %02x %02x 00 00 00", direction, endpoint, type, size);
-	if (stage != 0xff) {
-		printf(" %02x\n", stage);
-	} else {
-		printf("\n");
-	}
-	printf("00%02x  %s\n", urbsize, data_str.c_str());
-	printf("\n");
-}
-
 void EspUsbHost::begin(void) {
 	usbTransferSize = 0;
 	const usb_host_config_t config = {
@@ -78,8 +51,8 @@ void EspUsbHost::_clientEventCallback(const usb_host_client_event_msg_t *eventMs
 			}
 
 			const uint8_t requestdevice[8] = { 0x80, 0x06, 0x00, 0x01, 0x00, 0x00, 0x12, 0x00 };
-			_printPcapText("GET DESCRIPTOR Request DEVICE", 0x000b, 0x00, 0x80, 0x02, sizeof(requestdevice), 0x00, requestdevice);
-			_printPcapText("GET DESCRIPTOR Response DEVICE", 0x0008, 0x01, 0x80, 0x02, sizeof(usb_device_desc_t), 0x03, (const uint8_t *)dev_desc);
+			Serial.println("GET DESCRIPTOR Request DEVICE");
+			Serial.println("GET DESCRIPTOR Response DEVICE bcdUSB = " + String(dev_desc->bcdUSB, HEX));
 
 			const usb_config_desc_t *config_desc;
 			result = usb_host_get_active_config_descriptor(usbHost->deviceHandle, &config_desc);
@@ -89,8 +62,8 @@ void EspUsbHost::_clientEventCallback(const usb_host_client_event_msg_t *eventMs
 			}
 
 			const uint8_t requestconfig[8] = { 0x80, 0x06, 0x00, 0x02, 0x00, 0x00, 0x09, 0x00 };
-			_printPcapText("GET DESCRIPTOR Request CONFIGURATION", 0x000b, 0x00, 0x80, 0x02, sizeof(requestconfig), 0x00, requestconfig);
-			_printPcapText("GET DESCRIPTOR Response CONFIGURATION", 0x0008, 0x01, 0x80, 0x02, sizeof(usb_config_desc_t), 0x03, (const uint8_t *)config_desc);
+			Serial.println("GET DESCRIPTOR Request CONFIGURATION");
+			Serial.println("GET DESCRIPTOR Response CONFIGURATION");
 			usbHost->_configCallback(config_desc);
 			break;
 		}
@@ -124,9 +97,8 @@ void EspUsbHost::_configCallback(const usb_config_desc_t *config_desc) {
 	const uint8_t *p = &config_desc->val[0];
 	uint8_t bLength;
 	const uint8_t setup[8] = { 0x80, 0x06, 0x00, 0x02, 0x00, 0x00, (uint8_t)config_desc->wTotalLength, 0x00 };
-	_printPcapText("GET DESCRIPTOR Request CONFIGURATION", 0x000b, 0x00, 0x80, 0x02, sizeof(setup), 0x00, setup);
-	_printPcapText("GET DESCRIPTOR Response CONFIGURATION", 0x0008, 0x01, 0x80, 0x02, config_desc->wTotalLength, 0x03, (const uint8_t *)config_desc);
-
+	Serial.println("GET DESCRIPTOR Request CONFIGURATION");
+	Serial.println("GET DESCRIPTOR Response CONFIGURATION");
 	for (uint16_t i = 0; i < config_desc->wTotalLength; i += bLength, p += bLength) {
 		bLength = *p;
 		if ((i + bLength) >= config_desc->wTotalLength) {
@@ -139,18 +111,8 @@ void EspUsbHost::_configCallback(const usb_config_desc_t *config_desc) {
 }
 
 void EspUsbHost::task(void) {
-	esp_err_t result = usb_host_lib_handle_events(1, &this->eventFlags);
-	if (result != ESP_OK) {
-		Serial.println("usb_host_lib_handle_events() error" + String(result));
-		return;
-	}
-
-	result = usb_host_client_handle_events(this->clientHandle, 1);
-	if (result != ESP_OK) {
-		Serial.println("usb_host_client_handle_events() error" + String(result));
-		return;
-	}
-
+	usb_host_lib_handle_events(1, &this->eventFlags);
+	usb_host_client_handle_events(this->clientHandle, 1);
 	if (!this->isReady) {
 		return;
 	}
@@ -262,21 +224,21 @@ void EspUsbHost::_onReceive(usb_transfer_t *transfer) {
 			memcpy(&last_report, &report, sizeof(last_report));
 
 			uint8_t keycode = report.keycode[0];
-			usbHost->keyboard_leds = 0; // todo: test
+			uint8_t led = 0;
 			switch (report.keycode[0]) {
 				case HID_KEY_NUM_LOCK:
-					usbHost->keyboard_leds |= KEYBOARD_LED_NUMLOCK;
+					led |= KEYBOARD_LED_NUMLOCK;
 					break;
 				case HID_KEY_CAPS_LOCK:
-					usbHost->keyboard_leds |= KEYBOARD_LED_CAPSLOCK;
+					led |= KEYBOARD_LED_CAPSLOCK;
 					break;
 				case HID_KEY_SCROLL_LOCK:
-					usbHost->keyboard_leds |= KEYBOARD_LED_SCROLLLOCK;
+					led |= KEYBOARD_LED_SCROLLLOCK;
 					break;
 			}
 
-			if (usbHost->keyboard_leds) {
-				usbHost->sendKeyboardLeds();
+			if (led) {
+				usbHost->sendKeyboardLeds(led);
 			}
 		}
 	} else if (endpoint_data->bInterfaceProtocol == HID_ITF_PROTOCOL_MOUSE) {
@@ -314,7 +276,7 @@ esp_err_t EspUsbHost::submitControl(const uint8_t bmRequestType, const uint8_t b
 	transfer->callback = _onReceiveControl;
 	transfer->context = this;
 	if (bmRequestType == 0x81 && bDescriptorIndex == 0x00 && bDescriptorType == 0x22) {
-		_printPcapText("GET DESCRIPTOR Request HID Report", 0x0028, 0x00, 0x80, 0x02, 8, 0, transfer->data_buffer);
+		Serial.println("GET DESCRIPTOR Request HID Report");
 	}
 
 	esp_err_t result = usb_host_transfer_submit_control(clientHandle, transfer);
@@ -323,7 +285,6 @@ esp_err_t EspUsbHost::submitControl(const uint8_t bmRequestType, const uint8_t b
 
 void EspUsbHost::_onReceiveControl(usb_transfer_t *transfer) {
 	EspUsbHost *usbHost = (EspUsbHost *)transfer->context;
-	_printPcapText("GET DESCRIPTOR Response HID Report", 0x0008, 0x01, 0x80, 0x02, transfer->actual_num_bytes - 8, 0x03, &transfer->data_buffer[8]);
 	usb_host_transfer_free(transfer);
 }
 
@@ -335,7 +296,8 @@ void EspUsbHost::setMouseCallback(mouse_callback callback) {
 	this->mouseCallback = callback;
 }
 
-void EspUsbHost::sendKeyboardLeds() {
+void EspUsbHost::sendKeyboardLeds(uint8_t led) {
+	keyboard_leds ^= led;
 	usb_transfer_t *transfer;
 	esp_err_t transferResult = usb_host_transfer_alloc(9, 0, &transfer);
 	if (transferResult != ESP_OK) {
@@ -358,5 +320,4 @@ void EspUsbHost::sendKeyboardLeds() {
 	transfer->callback = _onReceiveControl;
 	transfer->context = this;
 	usb_host_transfer_submit_control(clientHandle, transfer);
-	//keyboard_leds = 0; todo: test
 }

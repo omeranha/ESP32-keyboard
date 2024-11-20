@@ -52,7 +52,6 @@ public:
 	static String getUsbDescString(const usb_str_desc_t *str_desc);
 	static void _onReceive(usb_transfer_t *transfer);
 
-	static void _printPcapText(const char* title, uint16_t function, uint8_t direction, uint8_t endpoint, uint8_t type, uint8_t size, uint8_t stage, const uint8_t *data);
 	esp_err_t submitControl(const uint8_t bmRequestType, const uint8_t bDescriptorIndex, const uint8_t bDescriptorType, const uint16_t wInterfaceNumber, const uint16_t wDescriptorLength);
 	static void _onReceiveControl(usb_transfer_t *transfer);
 
@@ -64,7 +63,7 @@ public:
 	void setKeyboardCallback(keyboard_callback callback);
 	void setMouseCallback(mouse_callback callback);
 
-	void sendKeyboardLeds();
+	void sendKeyboardLeds(uint8_t led);
 };
 
 #endif
