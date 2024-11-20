@@ -3,12 +3,13 @@
 #include <iostream>
 #include <Windows.h>
 #include <map>
-#include <vector>
-#include <atomic>
 #include <thread>
-#include <string>
+#include <fstream>
+#include <sstream>
+#include <chrono>
+#include <vector>
 
-std::map<uint8_t, uint8_t> modifiers = {
+std::map<uint8_t, uint8_t> modifiercodes = {
 	{1, VK_LCONTROL},
 	{2, VK_LSHIFT},
 	{4, VK_LMENU},
@@ -66,6 +67,7 @@ std::map<uint8_t, uint8_t> keycodes = {
 	{0x2F, 0xDB}, // [ (left bracket)
 	{0x30, 0xDD}, // ] (right bracket)
 	{0x31, 0xDC}, // \ (backslash)
+	{0x32, 0x00}, // Non-US # and ~
 	{0x33, 0xBA}, // ; (semicolon)
 	{0x34, 0xDE}, // ' (apostrophe)
 	{0x35, 0xC0}, // ` (grave accent)
@@ -85,6 +87,9 @@ std::map<uint8_t, uint8_t> keycodes = {
 	{0x43, 0x79}, // F10
 	{0x44, 0x7A}, // F11
 	{0x45, 0x7B}, // F12
+	{0x46, 0x7C}, // Print Screen
+	{0x47, 0x91}, // Scroll Lock
+	{0x48, 0x13}, // Pause
 	{0x49, 0x2D}, // Insert
 	{0x4A, 0x24}, // Home
 	{0x4B, 0x21}, // Page Up
@@ -112,4 +117,8 @@ std::map<uint8_t, uint8_t> keycodes = {
 	{0x61, 0x69}, // Keypad 9
 	{0x62, 0x60}, // Keypad 0
 	{0x63, 0x6E}, // Keypad .
+	{0x64, 0x00}, // Non-US \ and |
+	{0x65, 0x00}, // Application
+	{0x66, 0x00}, // Power
+	{0x67, 0x6C}, // Keypad =
 };
